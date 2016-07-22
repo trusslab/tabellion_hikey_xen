@@ -21,35 +21,19 @@
 #include <xen/lib.h>
 #include <xen/list.h>
 
-#include <asm/p2m.h>
 #include <asm/system.h>
 #include <asm/processor.h>
 #include <asm/current.h>
 
 #include <xen/sched.h>
-#include <asm/gic.h>
 #include <asm/event.h>
 #include <public/xen.h>
 
+#include "smc.h"
+#include "shm.h"
 #include "optee.h"
 #include "optee_smc.h"
 #include "optee_msg.h"
-
-struct domain_shmem_info {
-	paddr_t maddr;
-	paddr_t gaddr;
-	size_t size;
-	domid_t domain_id;
-	bool_t valid;
-};
-
-static struct domain_shmem_info domain_shmem_info[OPTEE_MAX_DOMAINS];
-
-struct optee_shmem_info {
-	paddr_t maddr;
-	size_t size;
-	bool_t valid;
-} optee_shmem_info;
 
 /**
  * We will store opened sessions in the linked list.
@@ -82,7 +66,7 @@ struct optee_rpc_call{
 
 LIST_HEAD(optee_rpc_calls);
 
-static void execute_smc(struct cpu_user_regs *regs)
+void optee_execute_smc(struct cpu_user_regs *regs)
 {
 	register_t retval[4];
 
@@ -101,71 +85,6 @@ static void execute_smc(struct cpu_user_regs *regs)
 	regs->x3 = retval[3];
 }
 
-static void do_process_get_shm_config(struct cpu_user_regs *regs)
-{
-	if (!optee_shmem_info.valid) {
-		size_t domain_shmem_size;
-		paddr_t maddr;
-
-		/* Get config from OPTEE */
-		execute_smc(regs);
-		optee_shmem_info.maddr = regs->x1;
-		optee_shmem_info.size = regs->x2;
-		optee_shmem_info.valid = true;
-		/* Split OP-TEE shmem region for domains */
-		domain_shmem_size =
-			(optee_shmem_info.size/OPTEE_MAX_DOMAINS);
-		domain_shmem_size -= domain_shmem_size%PAGE_SIZE;
-		maddr = optee_shmem_info.maddr;
-		for (int i = 0; i < OPTEE_MAX_DOMAINS; i++) {
-			domain_shmem_info[i].valid = false;
-			domain_shmem_info[i].size = domain_shmem_size;
-			domain_shmem_info[i].maddr = maddr;
-			domain_shmem_info[i].gaddr = maddr;
-			maddr += domain_shmem_size;
-		}
-	}
-
-	/* Check if memory is already maped for this domain */
-	for (int i = 0; i < OPTEE_MAX_DOMAINS; i++) {
-		if (domain_shmem_info[i].valid &&
-		    domain_shmem_info[i].domain_id == current->domain->domain_id) {
-			regs->x0 = OPTEE_SMC_RETURN_OK;
-			regs->x1 = domain_shmem_info[i].gaddr;
-			regs->x2 = domain_shmem_info[i].size;
-			regs->x3 = OPTEE_SMC_SHM_CACHED;
-			return;
-		}
-	}
-
-	/* Find free slot and map memory */
-	for (int i = 0; i < OPTEE_MAX_DOMAINS; i++) {
-		if (domain_shmem_info[i].valid == false) {
-			int ret = guest_physmap_add_entry_range(
-				current->domain,
-				paddr_to_pfn(domain_shmem_info[i].gaddr),
-				domain_shmem_info[i].size / PAGE_SIZE,
-				paddr_to_pfn(domain_shmem_info[i].maddr),
-				p2m_ram_rw);
-			if (ret == 0) {
-				regs->x0 = OPTEE_SMC_RETURN_OK;
-				regs->x1 = domain_shmem_info[i].gaddr;
-				regs->x2 = domain_shmem_info[i].size;
-				regs->x3 = OPTEE_SMC_SHM_CACHED;
-				domain_shmem_info[i].domain_id =
-					current->domain->domain_id;
-				domain_shmem_info[i].valid = true;
-				return;
-			} else {
-				regs->x0 = OPTEE_SMC_RETURN_ENOMEM;
-				return;
-			}
-		}
-	}
-
-	/* There are no free slots */
-	regs->x0 = OPTEE_SMC_RETURN_ENOMEM;
-}
 
 /**
  * This function shall pass all RPC calls and execute callback
@@ -175,7 +94,7 @@ static void do_process_get_shm_config(struct cpu_user_regs *regs)
 static void execute_std_smc(struct cpu_user_regs *regs,
                             void(*callback)(struct cpu_user_regs *regs))
 {
-	execute_smc(regs);
+	optee_execute_smc(regs);
 	if (OPTEE_SMC_RETURN_IS_RPC(regs->x0)) {
 		/* Store thread ID, so we can distiguish
 		   this call among others */
@@ -279,7 +198,7 @@ int optee_handle_smc(struct cpu_user_regs *regs)
 	uint32_t smc_code = regs->r0;
 	switch(smc_code){
 	case OPTEE_SMC_GET_SHM_CONFIG:
-		do_process_get_shm_config(regs);
+		optee_process_get_shm_config(regs);
 		break;
 	case OPTEE_SMC_ENABLE_SHM_CACHE:
 		/* We can't allow guests to enable SHM cache */
@@ -295,7 +214,7 @@ int optee_handle_smc(struct cpu_user_regs *regs)
 		break;
 	default:
 		/* Just forward request to OPTEE */
-		execute_smc(regs);
+		optee_execute_smc(regs);
 		break;
 	}
 	return 0;
@@ -303,13 +222,7 @@ int optee_handle_smc(struct cpu_user_regs *regs)
 
 void optee_domain_destroy(struct domain *d)
 {
-	/* Mark domain's shared memory as free */
-	for (int i = 0; i < OPTEE_MAX_DOMAINS; i++) {
-		if (domain_shmem_info[i].valid &&
-		    domain_shmem_info[i].domain_id == d->domain_id) {
-			domain_shmem_info[i].valid = false;
-		}
-	}
+    optee_free_domain_shm(d->domain_id);
 }
 
 /*
