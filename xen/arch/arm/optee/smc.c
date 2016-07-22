@@ -18,6 +18,7 @@
  */
 
 #include <xen/config.h>
+#include <xen/delay.h>
 #include <xen/lib.h>
 #include <xen/list.h>
 
@@ -31,6 +32,7 @@
 
 #include "smc.h"
 #include "shm.h"
+#include "call.h"
 #include "optee.h"
 #include "optee_smc.h"
 #include "optee_msg.h"
@@ -46,9 +48,12 @@ struct optee_session {
 	struct list_head list;
 	domid_t domain_id;
 	unsigned int session_handle;
+	paddr_t params;
 };
 
 LIST_HEAD(optee_sessions);
+
+DEFINE_SPINLOCK(sessions_lock);
 
 /**
  * Store RPC returns in the linked list. In this way we can track them.
@@ -65,6 +70,8 @@ struct optee_rpc_call{
 };
 
 LIST_HEAD(optee_rpc_calls);
+
+DEFINE_SPINLOCK(rpc_calls_lock);
 
 void optee_execute_smc(struct cpu_user_regs *regs)
 {
@@ -106,39 +113,86 @@ static void execute_std_smc(struct cpu_user_regs *regs,
 		call_info->domain_id = current->domain->domain_id;
 		call_info->thread_id = regs->x3;
 		call_info->callback = callback;
+		spin_lock(&rpc_calls_lock);
 		list_add(&call_info->list, &optee_rpc_calls);
-	} else
-		callback(regs);
+		spin_unlock(&rpc_calls_lock);
+	} else if(callback)
+	    callback(regs);
+}
+
+/**
+ * This function should be called in case domain is being destroyed,
+ * when it can't handle RPC calls by itself
+ */
+static void force_end_rpc(struct domain *d, unsigned int thread_id)
+{
+	register_t retval[4];
+	retval[3] = thread_id;
+	do {
+		call_smc_ext(OPTEE_SMC_CALL_RETURN_FROM_RPC,
+		             0,
+		             0,
+		             retval[3],
+		             0,
+		             0,
+		             0,
+		             d->domain_id + 1,
+		             retval);
+	} while(OPTEE_SMC_RETURN_IS_RPC(retval[0]));
+}
+
+/**
+ * This function will be called if there are opened session during
+ * domain destruction
+ */
+
+static void force_close_session(struct domain *d, struct optee_session *session)
+{
+	int ret = 0;
+	struct optee_msg_arg *arg = optee_shm_zalloc(sizeof(struct optee_msg_arg));
+
+	if (!arg) {
+	    /* TODO: Should we panic there? */
+	    printk("OPTEE: force_close_session: can't alloc arg\n");
+	    return;
+	}
+	arg->cmd = OPTEE_MSG_CMD_CLOSE_SESSION;
+	arg->session = session->session_handle;
+	ret = optee_do_call_with_arg(d, virt_to_maddr(arg));
+	optee_shm_free(arg);
 }
 
 static void do_return_from_rpc(struct cpu_user_regs *regs)
 {
-	struct list_head *list_ptr, *list_next;
-	struct optee_rpc_call *call_info;
-	list_for_each_safe(list_ptr, list_next, &optee_rpc_calls) {
-		call_info = list_entry(list_ptr, struct optee_rpc_call,
-		                      list);
-		if (call_info->domain_id ==
-		    current->domain->domain_id &&
-		    call_info->thread_id  == regs->x3) {
-			execute_smc(regs);
-			if (OPTEE_SMC_RETURN_IS_RPC(regs->x0)) {
-				return;
-			} else {
-				call_info->callback(regs);
-				list_del(list_ptr);
-				xfree(call_info);
-				return;
-			}
-		}
+    struct list_head *list_ptr, *list_next;
+    struct optee_rpc_call *call_info;
+    spin_lock(&rpc_calls_lock);
+    list_for_each_safe(list_ptr, list_next, &optee_rpc_calls) {
+	call_info = list_entry(list_ptr, struct optee_rpc_call,
+			       list);
+	if (call_info->domain_id == current->domain->domain_id &&
+	    call_info->thread_id  == regs->x3) {
+	    spin_unlock(&rpc_calls_lock);
+	    optee_execute_smc(regs);
+	    if (!OPTEE_SMC_RETURN_IS_RPC(regs->x0)) {
+		if(call_info->callback)
+		    call_info->callback(regs);
+		spin_lock(&rpc_calls_lock);
+		list_del(list_ptr);
+		spin_unlock(&rpc_calls_lock);
+		xfree(call_info);
+	    }
+	    return;
 	}
-	execute_smc(regs);
+    }
+    spin_unlock(&rpc_calls_lock);
+    optee_execute_smc(regs);
 }
 
 static void on_cmd_open_session_done(struct cpu_user_regs *regs)
 {
 	paddr_t parg = (uint64_t)regs->x1 << 32 | regs->x2;
-	volatile struct optee_msg_arg * arg = maddr_to_virt(parg);
+	struct optee_msg_arg * arg = maddr_to_virt(parg);
 	struct optee_session *ses_info;
 	if(arg->ret == 0 && regs->x0 == 0) {
 		ses_info = xzalloc(struct optee_session);
@@ -148,17 +202,19 @@ static void on_cmd_open_session_done(struct cpu_user_regs *regs)
 		ses_info->domain_id =
 			current->domain->domain_id;
 		ses_info->session_handle = arg->session;
+		spin_lock(&sessions_lock);
 		list_add(&ses_info->list, &optee_sessions);
+		spin_unlock(&sessions_lock);
 	}
 }
 
 static void on_cmd_close_session_done(struct cpu_user_regs *regs)
 {
 	paddr_t parg = (uint64_t)regs->x1 << 32 | regs->x2;
-	volatile struct optee_msg_arg * arg = maddr_to_virt(parg);
+	struct optee_msg_arg * arg = maddr_to_virt(parg);
 	struct optee_session *ses_info;
 	struct list_head *list_ptr, *list_next;
-
+	spin_lock(&sessions_lock);
 	list_for_each_safe(list_ptr, list_next, &optee_sessions) {
 		ses_info = list_entry(list_ptr, struct optee_session,
 		                      list);
@@ -169,6 +225,7 @@ static void on_cmd_close_session_done(struct cpu_user_regs *regs)
 			xfree(ses_info);
 		}
 	}
+	spin_unlock(&sessions_lock);
 }
 
 static void do_process_handle_call(struct cpu_user_regs *regs)
@@ -188,7 +245,7 @@ static void do_process_handle_call(struct cpu_user_regs *regs)
 		break;
 	default:
 		/* Execute call and check if it was successul  */
-		execute_smc(regs);
+		execute_std_smc(regs, NULL);
 		break;
 	}
 }
@@ -222,6 +279,35 @@ int optee_handle_smc(struct cpu_user_regs *regs)
 
 void optee_domain_destroy(struct domain *d)
 {
+    struct optee_session *session;
+    struct optee_rpc_call *call_info;
+    struct list_head *list_ptr, *list_next;
+
+    /* End all pending RPC calls */
+    spin_lock(&rpc_calls_lock);
+    list_for_each_safe(list_ptr, list_next, &optee_rpc_calls) {
+	call_info = list_entry(list_ptr, struct optee_rpc_call,
+			       list);
+	if (call_info->domain_id == d->domain_id) {
+	    force_end_rpc(d, call_info->thread_id);
+	    list_del(list_ptr);
+	    xfree(call_info);
+	}
+    }
+    spin_unlock(&rpc_calls_lock);
+    /* Close all openned sessions */
+    spin_lock(&sessions_lock);
+    list_for_each_safe(list_ptr, list_next, &optee_sessions) {
+        session = list_entry(list_ptr, struct optee_session,
+                              list);
+        if (session->domain_id == d->domain_id) {
+	    force_close_session(d, session);
+            list_del(list_ptr);
+            xfree(session);
+        }
+    }
+    spin_unlock(&sessions_lock);
+    /* Mark domain's shared memory as free */
     optee_free_domain_shm(d->domain_id);
 }
 
