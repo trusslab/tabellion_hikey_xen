@@ -77,12 +77,14 @@ static void configure_xen_shm(void)
 
 void* optee_shm_alloc(size_t size)
 {
+    printk("[2]\n");
     return xmem_pool_alloc(size, optee_mempool);
 }
 
 void* optee_shm_zalloc(size_t size)
 {
     void *ptr = optee_shm_alloc(size);
+    printk("[1]\n");
     if (ptr)
         memset(ptr, 0, size);
     return ptr;

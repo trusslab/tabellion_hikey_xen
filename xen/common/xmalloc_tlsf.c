@@ -381,6 +381,7 @@ void *xmem_pool_alloc(unsigned long size, struct xmem_pool *pool)
     int fl, sl;
     unsigned long tmp_size;
 
+    //printk("[3]\n");
     if ( pool->init_region == NULL )
     {
         if ( (region = pool->get_mem(pool->init_size)) == NULL )

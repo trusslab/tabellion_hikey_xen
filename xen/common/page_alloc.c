@@ -597,7 +597,10 @@ static unsigned long low_mem_virq_orig      = 0;
 /* Order for current threshold */
 static unsigned int  low_mem_virq_th_order  = 0;
 
+extern int test_call(void);
 /* Perform bootstrapping checks and set bounds */
+//#include <tee_client_api.h>
+
 static void __init setup_low_mem_virq(void)
 {
     unsigned int order;
@@ -644,6 +647,9 @@ static void __init setup_low_mem_virq(void)
     /* Set bounds, ready to go */
     low_mem_virq_th = low_mem_virq_orig = 1UL << order;
     low_mem_virq_th_order = order;
+
+    //Saeed
+    test_call();
 
     printk("Initial low memory virq threshold set at %#lx pages.\n",
             low_mem_virq_th);

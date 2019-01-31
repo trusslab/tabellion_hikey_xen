@@ -145,6 +145,15 @@ static void force_end_rpc(struct domain *d, unsigned int thread_id)
  * This function will be called if there are opened session during
  * domain destruction
  */
+void test_call(void)
+{
+	//struct arm_smccc_res res;
+	register_t retval[4];
+	printk("Saeed: start smc test in Xen\n");
+	call_smc_ext(OPTEE_SMC_FREEZE_OP, 0, 0, 0, 0, 0, 0, 0, retval);
+	printk(KERN_INFO "Response: %lx, %lx, %lx, %lx\n", retval[0], retval[1], retval[2], retval[3]);
+}
+EXPORT_SYMBOL(test_call);
 
 static void force_close_session(struct domain *d, struct optee_session *session)
 {
@@ -276,6 +285,7 @@ int optee_handle_smc(struct cpu_user_regs *regs)
     }
     return 0;
 }
+EXPORT_SYMBOL(optee_handle_smc);
 
 void optee_domain_destroy(struct domain *d)
 {

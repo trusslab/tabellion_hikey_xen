@@ -9,6 +9,9 @@ long do_arm_vcpu_op(int cmd, unsigned int vcpuid, XEN_GUEST_HANDLE_PARAM(void) a
 long subarch_do_domctl(struct xen_domctl *domctl, struct domain *d,
                        XEN_GUEST_HANDLE_PARAM(xen_domctl_t) u_domctl);
 
+//Saeed
+int do_freeze(void);
+
 #endif /* __ASM_ARM_HYPERCALL_H__ */
 /*
  * Local variables:

@@ -820,6 +820,7 @@ void *ioremap(paddr_t pa, size_t len)
 {
     return ioremap_attr(pa, len, PAGE_HYPERVISOR_NOCACHE);
 }
+EXPORT_SYMBOL(ioremap);
 
 static int create_xen_table(lpae_t *entry)
 {

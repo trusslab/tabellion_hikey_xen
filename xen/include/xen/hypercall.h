@@ -85,6 +85,11 @@ do_xen_version(
     int cmd,
     XEN_GUEST_HANDLE_PARAM(void) arg);
 
+//Saeed
+extern long
+do_freeze_op(
+    XEN_GUEST_HANDLE_PARAM(void) arg);
+
 extern long
 do_console_io(
     int cmd,

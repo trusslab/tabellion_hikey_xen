@@ -17,7 +17,13 @@
 #include <asm/current.h>
 #include <public/nmi.h>
 #include <public/version.h>
-
+//Saeed
+#include <xen/sizes.h>
+#include <xen/mm.h>
+#include <asm/p2m.h>
+#include <public/memory.h>
+#include <xen/domain_page.h>
+#include<asm-arm/arm64/io.h>
 #ifndef COMPAT
 
 enum system_state system_state = SYS_STATE_early_boot;
@@ -224,6 +230,209 @@ void __init do_initcalls(void)
 /*
  * Simple hypercalls.
  */
+//Saeed
+//
+
+extern void test_call(void);
+extern void dump_guest_s1_walk(struct domain *, vaddr_t);
+extern void *ioremap(paddr_t, size_t);
+
+DO(freeze_op)(XEN_GUEST_HANDLE_PARAM(void) arg) {
+
+////	void *old_buf;
+////	void* new_buf;
+	void* reg_buf;
+	int i, j;
+//	u32 val;
+	unsigned int buff = 0;
+//
+////	mfn_t old_buf_mfn;
+	mfn_t reg_mfn;
+//
+////	paddr_t paddr;
+	paddr_t paddr_base;
+////	unsigned long pfn;
+	unsigned long val;
+//	p2m_type_t p2mt = p2m_ram_rw;
+	//p2m_type_t p2mt = p2m_mmio_direct;
+	unsigned long offset;
+//	u32 reg_addr = 0x1008;
+	paddr_t paddr_g = 0x54100000;
+////	paddr_t base = 0xf4100000;
+
+//	paddr_t base = 0xf4100000 + reg_addr;
+//	paddr_t base2 = 0x9b68000;
+//
+	if( copy_from_guest(&buff, arg, 1) ) {
+		printk("SaeedXEN: Error\n");
+		return -EFAULT;
+	}
+
+	//gvaddr = 0xffffff8009b70000;
+	//val = readl(base + reg_addr);	
+	printk("Saeed: Start freeze op\n");
+	printk("Saeed: %lx\n", (unsigned long)buff);
+
+	//////////// Reading the value at phys addr passed as argument
+	paddr_base = p2m_lookup(current->domain, buff, NULL);
+	if(paddr_base == INVALID_PADDR) {
+		goto end;
+	}
+	printk("SaeedXEN: paddr_base1=%lx\n", (unsigned long)paddr_base);
+	reg_mfn = ((unsigned long)((paddr_base) >> PAGE_SHIFT));
+	printk("SaeedXEN: reg_mfn1=%lx\n", (unsigned long)reg_mfn);
+
+	reg_buf = map_domain_page_global(reg_mfn);
+	printk("SaeedXEN: reg_buf1=%lx\n", (unsigned long)reg_buf);
+
+	offset = paddr_base - (reg_mfn << PAGE_SHIFT);
+	
+	val = readw(reg_buf + offset);
+	printk("SaeedXEN: reg val_w=%lx\n", (unsigned long)val);
+	val = readl(reg_buf + offset);
+	printk("SaeedXEN: reg val_l=%lx\n", (unsigned long)val);
+
+
+
+	/////////////Reading pixel values
+	paddr_base = p2m_lookup(current->domain, paddr_g, NULL);
+	if(paddr_base == INVALID_PADDR) {
+		goto end;
+	}
+	printk("SaeedXEN: paddr_base1=%lx\n", (unsigned long)paddr_base);
+	reg_mfn = ((unsigned long)((paddr_base) >> PAGE_SHIFT));
+	printk("SaeedXEN: reg_mfn1=%lx\n", (unsigned long)reg_mfn);
+
+	reg_buf = map_domain_page_global(reg_mfn);
+	printk("SaeedXEN: reg_buf1=%lx\n", (unsigned long)reg_buf);
+
+	offset = paddr_base - (reg_mfn << PAGE_SHIFT);
+	
+	val = readl(reg_buf + offset);
+	printk("SaeedXEN: reg val_l=%lx\n", (unsigned long)val);
+	val = readl(reg_buf + offset + 4);
+	printk("SaeedXEN: reg val_l=%lx\n", (unsigned long)val);
+	val = readl(reg_buf + offset + 8);
+	printk("SaeedXEN: reg val_l=%lx\n", (unsigned long)val);
+
+	for(i=0; i<2073600 * 2; i++) {
+		writel(0xffffffff, reg_buf + offset + 4*i);
+	}
+
+	// comment for now
+//	p2m_set_mem_access(current->domain, _gfn(base >> PAGE_SHIFT), 1, 0, ~0, XENMEM_access_r, 0);
+
+
+	
+	//
+//	//Copy current FB to a new FB
+//	//
+//	//
+//	//New FB:
+////	new_buf = _xzalloc(1920*1280*8, SZ_64M);
+//
+//	//old buf
+//	// paddr_g -> mfn
+//	//
+///	paddr = p2m_lookup(current->domain, paddr_g, NULL);
+////	old_buf_mfn = ((unsigned long)((paddr) >> PAGE_SHIFT));
+////	old_buf = map_domain_page_global(old_buf_mfn);
+////	memcpy(new_buf, old_buf, 16588800);	
+//
+//	//Update the register
+//	//
+	//paddr_base = p2m_lookup(current->domain, buff << PAGE_SHIFT, &p2mt);
+	//
+
+//	printk("Saeed: Dump start\n");
+//	dump_guest_s1_walk(current->domain, 0xffffff8009b70000);
+//
+//	paddr_base = p2m_lookup(current->domain, base, NULL);
+//	paddr_base = p2m_lookup(current->domain, (base >> PAGE_SHIFT) << PAGE_SHIFT, NULL);
+//	if(paddr_base == INVALID_PADDR) {
+//		goto end;
+//	}
+//	printk("SaeedXEN: paddr_base1=%lx\n", (unsigned long)paddr_base);
+//	//offset = buff - paddr_base;
+//	//printk("SaeedXEN: offset1=%lx\n", (unsigned long)offset);
+//	reg_mfn = (paddr_base) >> PAGE_SHIFT;
+//	printk("SaeedXEN: reg_mfn1=%lx\n", (unsigned long)reg_mfn);
+//	offset = paddr_base - (reg_mfn << PAGE_SHIFT);
+//	//offset = reg_addr;
+//	printk("SaeedXEN: offset1=%lx\n", (unsigned long)offset);
+//	reg_buf = map_domain_page_global(_mfn(reg_mfn));
+//	printk("SaeedXEN: reg_buf1=%lx\n", (unsigned long)reg_buf);
+//	val = readl(reg_buf + offset);
+//	printk("SaeedXEN: reg val1=%lx\n", (unsigned long)val);
+
+	//reg_buf = ioremap(0xf4100000, 0x1008);
+	//usleep(1000*1000*2);
+	
+	//sleep
+	for(j=0; j<500000; j+=2) {
+		j--;
+	}
+	for(j=0; j<500000; j+=2) {
+		j--;
+	}
+	for(j=0; j<500000; j+=2) {
+		j--;
+	}
+	for(j=0; j<500000; j+=2) {
+		j--;
+	}
+
+	printk("j=%d\n", j);
+
+
+	reg_buf = ioremap(0xf4100000, 0x1010);
+	printk("SaeedXEN: reg_buf1=%lx\n", (unsigned long)reg_buf);
+
+	val = readl(reg_buf + 0x1008);
+	printk("SaeedXEN: reg val1=%lx\n", (unsigned long)val);
+	
+	writel(0x55100000, reg_buf + 0x1008); //or the 0x55100000
+	printk("SaeedXEN: reg val1=%lx\n", (unsigned long)readl(reg_buf + 0x1008));
+
+end:
+	test_call();
+
+//	val = *(int*)(reg_buf + offset);
+//	printk("SaeedXEN: reg val11=%d\n", (int)val);
+//	printk("SaeedXEN: reg val11=%lx\n", val);
+//
+//	paddr_base = p2m_lookup(current->domain, base2, NULL);
+//	printk("SaeedXEN: paddr_base2=%lx\n", (unsigned long)paddr_base);
+//	reg_mfn = ((unsigned long)((paddr_base) >> PAGE_SHIFT));
+//	printk("SaeedXEN: reg_mfn2=%lx\n", (unsigned long)reg_mfn);
+//	reg_buf = map_domain_page_global(reg_mfn);
+//	printk("SaeedXEN: reg_buf2=%lx\n", (unsigned long)reg_buf);
+//	val = readl(reg_buf + reg_addr);
+//	printk("SaeedXEN: reg val2=%lx\n", (unsigned long)val);
+//	val = *(unsigned int*)(reg_buf + reg_addr);
+//	printk("SaeedXEN: reg val22=%lx\n", (unsigned long)val);
+//	// new_buf to guest VA
+//
+////	paddr = p2m_lookup(current->domain, base + reg_addr, NULL);
+//
+//
+////	pfn = paddr_to_pfn(base + reg_addr);
+//	
+////	_mfn(paddr_to_pfn(base + reg_addr);
+//
+//
+////	printk("[6]: ptr = %lx\n", (unsigned long)readl((void*) ptr));
+//
+//	//mfn_to_virt
+//	//__va(x)
+//	//
+//	//
+////	p2m_lookup(current->domain, paddr, NULL);
+//
+//	printk("Saeed: End freeze op\n");
+//
+	return  0;
+}
 
 DO(xen_version)(int cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
 {
