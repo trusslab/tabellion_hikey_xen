@@ -12,4 +12,3 @@ cd ..
 #export XEN_TARGET_ARCH=arm64
 #make defconfig
 #make -j8
-
