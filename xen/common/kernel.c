@@ -24,6 +24,9 @@
 #include <public/memory.h>
 #include <xen/domain_page.h>
 #include<asm-arm/arm64/io.h>
+//#include <delay.h>
+
+//#include <unistd.h>
 #ifndef COMPAT
 
 enum system_state system_state = SYS_STATE_early_boot;
@@ -237,90 +240,182 @@ extern void test_call(void);
 extern void dump_guest_s1_walk(struct domain *, vaddr_t);
 extern void *ioremap(paddr_t, size_t);
 
+void* GPA_to_HPA(unsigned int paddr)
+{	
+	
+	paddr_t paddr_base;
+	unsigned long offset;
+	void* hpa;
+	mfn_t reg_mfn;
+
+	paddr_base = p2m_lookup(current->domain, paddr, NULL);
+	if(paddr_base == INVALID_PADDR) {
+		printk("INVALID_PADDR\n");
+		return 0;
+	}
+	//printk("SaeedXEN: paddr_base=%lx\n", (unsigned long)paddr_base);
+	reg_mfn = ((unsigned long)((paddr_base) >> PAGE_SHIFT));
+	//printk("SaeedXEN: reg_mfn=%lx\n", (unsigned long)reg_mfn);
+
+	hpa = map_domain_page_global(reg_mfn);
+	//printk("SaeedXEN: hpa=%lx\n", (unsigned long)hpa);
+
+	offset = paddr_base - (reg_mfn << PAGE_SHIFT);
+	hpa += offset;
+	return hpa;
+
+}
+unsigned int sfb_paddr;// = 0x55100000;
+
+DO(unfreeze_op)(XEN_GUEST_HANDLE_PARAM(void) arg) {
+
+	void* ade_reg;
+	ade_reg = ioremap(0xf4100000, 0x1010);
+
+	/* bring it back */
+	p2m_set_mem_access(current->domain, _gfn( (0xf4100000)>> PAGE_SHIFT), 1, 0, ~0, XENMEM_access_rw, 0);
+	
+	/* bring it back */
+	p2m_set_mem_access(current->domain, _gfn(sfb_paddr >> PAGE_SHIFT), 1, 0, ~0, XENMEM_access_rw, 0);
+
+	/* Back to normal */
+	//printk("SaeedXEN: reg_addr val before==%lx\n", (unsigned long)readl(ade_reg + 0x1008));	
+	writel(0x54100000, ade_reg + 0x1008); //or the 0x55100000
+	dsb(sy); isb();
+	//printk("SaeedXEN: reg_addr val after==%lx\n", (unsigned long)readl(ade_reg + 0x1008));
+	//
+	return 0;
+
+}
+
+
+/* Wait a set number of microseconds */
+extern void udelay(unsigned long usecs);
 DO(freeze_op)(XEN_GUEST_HANDLE_PARAM(void) arg) {
 
-////	void *old_buf;
-////	void* new_buf;
-	void* reg_buf;
-	int i, j;
-//	u32 val;
-	unsigned int buff = 0;
-//
-////	mfn_t old_buf_mfn;
-	mfn_t reg_mfn;
-//
-////	paddr_t paddr;
-	paddr_t paddr_base;
-////	unsigned long pfn;
-	unsigned long val;
-//	p2m_type_t p2mt = p2m_ram_rw;
-	//p2m_type_t p2mt = p2m_mmio_direct;
-	unsigned long offset;
-//	u32 reg_addr = 0x1008;
-	paddr_t paddr_g = 0x54100000;
-////	paddr_t base = 0xf4100000;
+	void* fb1, *fb2;
+	void* sfb1, *sfb2; //secure fb
+	void* ade_reg;
+	int i;
 
-//	paddr_t base = 0xf4100000 + reg_addr;
-//	paddr_t base2 = 0x9b68000;
+//	unsigned int sfb_paddr;// = 0x55100000;
+	unsigned int fb_paddr = 0x56100000;
+
+
+//	unsigned int old_buf;
+//	int i, j;
+////	u32 val;
+	unsigned int buff = 0;
+	void *tmp;
+////
+//////	mfn_t old_buf_mfn;
+//	mfn_t reg_mfn;
+////
+//////	paddr_t paddr;
+//	paddr_t paddr_base;
+//////	unsigned long pfn;
+//	unsigned long val;
+////	p2m_type_t p2mt = p2m_ram_rw;
+//	//p2m_type_t p2mt = p2m_mmio_direct;
+//	unsigned long offset;
+////	u32 reg_addr = 0x1008;
+//	paddr_t paddr_g = 0x54100000;
+//////	paddr_t base = 0xf4100000;
 //
+////	paddr_t base = 0xf4100000 + reg_addr;
+////	paddr_t base2 = 0x9b68000;
+//
+//	printk("Saeed: Start freeze op\n");
+
 	if( copy_from_guest(&buff, arg, 1) ) {
 		printk("SaeedXEN: Error\n");
 		return -EFAULT;
 	}
+//	printk("Saeed: buff=%x\n", (unsigned int)buff);
+	tmp = GPA_to_HPA(buff);
+
+	sfb_paddr = *(unsigned int*)tmp;
+
+	/* find the ade register */
+	ade_reg = ioremap(0xf4100000, 0x1010);
+//	printk("SaeedXEN: reg_addr=%lx\n", (unsigned long)ade_reg);
+
+	/* get secure fb addr in Xen */
+	sfb1 = GPA_to_HPA(sfb_paddr);
+	sfb2 = sfb1 + 8294400;
+//	printk("sfb1=%lx\n", (unsigned long)sfb1);
+//	printk("sfb2=%lx\n", (unsigned long)sfb2);
+//	printk("test val1=%x, ", readl(sfb1));
+//	printk("test val2=%x\n", readl(sfb2));
+
+	/* get normal fb addr in Xen */
+	fb1 = GPA_to_HPA(fb_paddr);
+	fb2 = fb1 + 8294400;
+//	printk("fb1=%lx\n", (unsigned long)fb1);
+//	printk("fb2=%lx\n", (unsigned long)fb2);
+//	printk("test val1=%x", readl(sfb1));
+//	printk("test val2=%x", readl(sfb2));
 
 	//gvaddr = 0xffffff8009b70000;
 	//val = readl(base + reg_addr);	
-	printk("Saeed: Start freeze op\n");
-	printk("Saeed: %lx\n", (unsigned long)buff);
 
-	//////////// Reading the value at phys addr passed as argument
-	paddr_base = p2m_lookup(current->domain, buff, NULL);
-	if(paddr_base == INVALID_PADDR) {
-		goto end;
-	}
-	printk("SaeedXEN: paddr_base1=%lx\n", (unsigned long)paddr_base);
-	reg_mfn = ((unsigned long)((paddr_base) >> PAGE_SHIFT));
-	printk("SaeedXEN: reg_mfn1=%lx\n", (unsigned long)reg_mfn);
+//	//////////// Reading the value at phys addr passed as argument
+//	paddr_base = p2m_lookup(current->domain, buff, NULL);
+//	if(paddr_base == INVALID_PADDR) {
+//		goto end;
+//	}
+//	printk("SaeedXEN: paddr_base1=%lx\n", (unsigned long)paddr_base);
+//	reg_mfn = ((unsigned long)((paddr_base) >> PAGE_SHIFT));
+//	printk("SaeedXEN: reg_mfn1=%lx\n", (unsigned long)reg_mfn);
+//
+//	reg_buf = map_domain_page_global(reg_mfn);
+//	printk("SaeedXEN: reg_buf1=%lx\n", (unsigned long)reg_buf);
+//
+//	offset = paddr_base - (reg_mfn << PAGE_SHIFT);
+//	
+//	val = readw(reg_buf + offset);
+//	printk("SaeedXEN: reg val_w=%lx\n", (unsigned long)val);
+//	val = readl(reg_buf + offset);
+//	printk("SaeedXEN: reg val_l=%lx\n", (unsigned long)val);
+//
+//	/////////////Reading pixel values
+//	paddr_base = p2m_lookup(current->domain, paddr_g, NULL);
+//	if(paddr_base == INVALID_PADDR) {
+//		goto end;
+//	}
+//	printk("SaeedXEN: paddr_base1=%lx\n", (unsigned long)paddr_base);
+//	reg_mfn = ((unsigned long)((paddr_base) >> PAGE_SHIFT));
+//	printk("SaeedXEN: reg_mfn1=%lx\n", (unsigned long)reg_mfn);
+//
+//	reg_buf = map_domain_page_global(reg_mfn);
+//	printk("SaeedXEN: reg_buf1=%lx\n", (unsigned long)reg_buf);
+//
+//	offset = paddr_base - (reg_mfn << PAGE_SHIFT);
+//	
+//	val = readl(reg_buf + offset);
+//	printk("SaeedXEN: pix=%lx\n", (unsigned long)val);
+//	val = readl(reg_buf + offset + 4);
+//	printk("SaeedXEN: pix=%lx\n", (unsigned long)val);
+//	val = readl(reg_buf + offset + 8);
+//	printk("SaeedXEN: reg val_l=%lx\n", (unsigned long)val);
 
-	reg_buf = map_domain_page_global(reg_mfn);
-	printk("SaeedXEN: reg_buf1=%lx\n", (unsigned long)reg_buf);
 
-	offset = paddr_base - (reg_mfn << PAGE_SHIFT);
-	
-	val = readw(reg_buf + offset);
-	printk("SaeedXEN: reg val_w=%lx\n", (unsigned long)val);
-	val = readl(reg_buf + offset);
-	printk("SaeedXEN: reg val_l=%lx\n", (unsigned long)val);
-
-
-
-	/////////////Reading pixel values
-	paddr_base = p2m_lookup(current->domain, paddr_g, NULL);
-	if(paddr_base == INVALID_PADDR) {
-		goto end;
-	}
-	printk("SaeedXEN: paddr_base1=%lx\n", (unsigned long)paddr_base);
-	reg_mfn = ((unsigned long)((paddr_base) >> PAGE_SHIFT));
-	printk("SaeedXEN: reg_mfn1=%lx\n", (unsigned long)reg_mfn);
-
-	reg_buf = map_domain_page_global(reg_mfn);
-	printk("SaeedXEN: reg_buf1=%lx\n", (unsigned long)reg_buf);
-
-	offset = paddr_base - (reg_mfn << PAGE_SHIFT);
-	
-	val = readl(reg_buf + offset);
-	printk("SaeedXEN: reg val_l=%lx\n", (unsigned long)val);
-	val = readl(reg_buf + offset + 4);
-	printk("SaeedXEN: reg val_l=%lx\n", (unsigned long)val);
-	val = readl(reg_buf + offset + 8);
-	printk("SaeedXEN: reg val_l=%lx\n", (unsigned long)val);
-
-	for(i=0; i<2073600 * 2; i++) {
-		writel(0xffffffff, reg_buf + offset + 4*i);
+	/* Write white page to the first sfb */
+	for(i=0; i<2073600; i++) {
+		writel(0xffffffff, sfb1 + 4*i);
 	}
 
-	// comment for now
-//	p2m_set_mem_access(current->domain, _gfn(base >> PAGE_SHIFT), 1, 0, ~0, XENMEM_access_r, 0);
+	/* Update the ade to sfb1*/
+//	printk("SaeedXEN: reg_addr val before==%lx\n", (unsigned long)readl(ade_reg + 0x1008));	
+	writel(sfb_paddr, ade_reg + 0x1008);
+	writel(1, ade_reg + 0x1020);
+	dsb(sy); isb();
+//	printk("SaeedXEN: reg_addr val after==%lx\n", (unsigned long)readl(ade_reg + 0x1008));
+
+//	for(i=0; i<573600; i++) {
+//		writel(0xffffffff, sfb2 + 4*i);
+//	}
+
 
 
 	
@@ -368,34 +463,39 @@ DO(freeze_op)(XEN_GUEST_HANDLE_PARAM(void) arg) {
 	//reg_buf = ioremap(0xf4100000, 0x1008);
 	//usleep(1000*1000*2);
 	
-	//sleep
-	for(j=0; j<500000; j+=2) {
-		j--;
-	}
-	for(j=0; j<500000; j+=2) {
-		j--;
-	}
-	for(j=0; j<500000; j+=2) {
-		j--;
-	}
-	for(j=0; j<500000; j+=2) {
-		j--;
-	}
+	/* sleep for a few seconds */
+	udelay(1000000);
 
-	printk("j=%d\n", j);
-
-
-	reg_buf = ioremap(0xf4100000, 0x1010);
-	printk("SaeedXEN: reg_buf1=%lx\n", (unsigned long)reg_buf);
-
-	val = readl(reg_buf + 0x1008);
-	printk("SaeedXEN: reg val1=%lx\n", (unsigned long)val);
+	/* show sfb2 - main page */
+//	printk("SaeedXEN: reg_addr val before==%lx\n", (unsigned long)readl(ade_reg + 0x1008));	
 	
-	writel(0x55100000, reg_buf + 0x1008); //or the 0x55100000
-	printk("SaeedXEN: reg val1=%lx\n", (unsigned long)readl(reg_buf + 0x1008));
+	
+	writel(sfb_paddr + 8294400, ade_reg + 0x1008); //or the 0x55100000
+	writel(1, ade_reg + 0x1020);
+	dsb(sy); isb();
+//	printk("SaeedXEN: reg_addr val after==%lx\n", (unsigned long)readl(ade_reg + 0x1008));
 
-end:
-	test_call();
+	/* sleep for a few seconds */
+	// udelay(1000000);
+	//
+	//
+	
+	/* write protect the ade register */
+	p2m_set_mem_access(current->domain, _gfn( (0xf4100000)>> PAGE_SHIFT), 1, 0, ~0, XENMEM_access_r, 0);
+	
+	/* write protect the secure framebuffer */
+	p2m_set_mem_access(current->domain, _gfn(sfb_paddr >> PAGE_SHIFT), 1, 0, ~0, XENMEM_access_r, 0);
+
+	/* Ask for signature here - Call OPTEE */
+//	test_call();
+
+//	//MOVED TO UNFREEZE_UI
+//	/* Back to normal */
+//	printk("SaeedXEN: reg_addr val before==%lx\n", (unsigned long)readl(ade_reg + 0x1008));	
+//	writel(0x54100000, ade_reg + 0x1008); //or the 0x55100000
+//	dsb(sy); isb();
+//	printk("SaeedXEN: reg_addr val after==%lx\n", (unsigned long)readl(ade_reg + 0x1008));
+
 
 //	val = *(int*)(reg_buf + offset);
 //	printk("SaeedXEN: reg val11=%d\n", (int)val);
@@ -431,6 +531,136 @@ end:
 //
 //	printk("Saeed: End freeze op\n");
 //
+	return  0;
+}
+
+DO(camera_op)(XEN_GUEST_HANDLE_PARAM(void) arg) {
+
+////	void *old_buf;
+////	void* new_buf;
+	void* dma_buf;
+	void* frame_buf;
+	int j;
+//	u32 val;
+	unsigned int buff = 0;
+//
+////	mfn_t old_buf_mfn;
+	mfn_t reg_mfn;
+//
+////	paddr_t paddr;
+	paddr_t paddr_base;
+////	unsigned long pfn;
+	unsigned long val;
+//	p2m_type_t p2mt = p2m_ram_rw;
+	//p2m_type_t p2mt = p2m_mmio_direct;
+	unsigned long offset;
+//	u32 reg_addr = 0x1008;
+	paddr_t paddr_g_fb = 0x54100000; //FB
+	paddr_t paddr_g_cam = 0x54700000; //Camera, wrong might be different each time
+////	paddr_t base = 0xf4100000;
+
+//	paddr_t base = 0xf4100000 + reg_addr;
+//	paddr_t base2 = 0x9b68000;
+//
+//
+	printk("Saeed: Xen start camera op\n");
+
+	if( copy_from_guest(&buff, arg, 1) ) {
+		printk("SaeedXEN: Error\n");
+		return -EFAULT;
+	}
+
+	//gvaddr = 0xffffff8009b70000;
+	//val = readl(base + reg_addr);	
+	printk("Saeed: %lx\n", (unsigned long)buff);
+	paddr_g_cam = buff;
+
+//	//////////// Reading the value at phys addr passed as argument
+//	paddr_base = p2m_lookup(current->domain, buff, NULL);
+//	if(paddr_base == INVALID_PADDR) {
+//		goto end;
+//	}
+//	printk("SaeedXEN: paddr_base1=%lx\n", (unsigned long)paddr_base);
+//	reg_mfn = ((unsigned long)((paddr_base) >> PAGE_SHIFT));
+//	printk("SaeedXEN: reg_mfn1=%lx\n", (unsigned long)reg_mfn);
+//
+//	reg_buf = map_domain_page_global(reg_mfn);
+//	printk("SaeedXEN: reg_buf1=%lx\n", (unsigned long)reg_buf);
+//
+//	offset = paddr_base - (reg_mfn << PAGE_SHIFT);
+//	
+//	val = readw(reg_buf + offset);
+//	printk("SaeedXEN: reg val_w=%lx\n", (unsigned long)val);
+//	val = readl(reg_buf + offset);
+//	printk("SaeedXEN: reg val_l=%lx\n", (unsigned long)val);
+
+
+
+	/////////////Reading camera buffer
+	paddr_base = p2m_lookup(current->domain, paddr_g_cam, NULL);
+	if(paddr_base == INVALID_PADDR) {
+		goto end;
+	}
+	printk("SaeedXEN: paddr_base1=%lx\n", (unsigned long)paddr_base);
+	reg_mfn = ((unsigned long)((paddr_base) >> PAGE_SHIFT));
+	printk("SaeedXEN: reg_mfn1=%lx\n", (unsigned long)reg_mfn);
+
+	dma_buf = map_domain_page_global(reg_mfn);
+	printk("SaeedXEN: reg_buf1=%lx\n", (unsigned long)dma_buf);
+
+	offset = paddr_base - (reg_mfn << PAGE_SHIFT);
+	
+	val = readl(dma_buf + offset);
+	printk("SaeedXEN: reg val_l=%lx\n", (unsigned long)val);
+
+
+	/////////////Reading frame buffer
+	paddr_base = p2m_lookup(current->domain, paddr_g_fb, NULL);
+	if(paddr_base == INVALID_PADDR) {
+		goto end;
+	}
+	printk("SaeedXEN: paddr_base1=%lx\n", (unsigned long)paddr_base);
+	reg_mfn = ((unsigned long)((paddr_base) >> PAGE_SHIFT));
+	printk("SaeedXEN: reg_mfn1=%lx\n", (unsigned long)reg_mfn);
+
+	frame_buf = map_domain_page_global(reg_mfn);
+	printk("SaeedXEN: reg_buf1=%lx\n", (unsigned long)dma_buf);
+
+	offset = paddr_base - (reg_mfn << PAGE_SHIFT);
+	
+	val = readl(frame_buf + offset);
+	printk("SaeedXEN: reg val_l=%lx\n", (unsigned long)val);
+
+
+	memcpy(frame_buf, dma_buf, 204800); //Display camera buf into fb for 5*40960 = 204800 bytes
+
+
+	// comment for now
+//	p2m_set_mem_access(current->domain, _gfn(base >> PAGE_SHIFT), 1, 0, ~0, XENMEM_access_r, 0);
+
+
+	
+	
+	//sleep
+	for(j=0; j<500000; j+=2) {
+		j--;
+	}
+	for(j=0; j<500000; j+=2) {
+		j--;
+	}
+	for(j=0; j<500000; j+=2) {
+		j--;
+	}
+	for(j=0; j<500000; j+=2) {
+		j--;
+	}
+
+
+end:
+	test_call();
+
+	printk("Saeed: End camera op\n");
+
 	return  0;
 }
 

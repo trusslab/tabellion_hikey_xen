@@ -323,6 +323,7 @@ void udelay(unsigned long usecs)
     dsb(sy);
     isb();
 }
+EXPORT_SYMBOL(udelay);
 
 /* VCPU PV timers. */
 void send_timer_event(struct vcpu *v)

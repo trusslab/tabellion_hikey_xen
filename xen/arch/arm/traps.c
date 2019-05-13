@@ -1288,6 +1288,8 @@ static arm_hypercall_t arm_hypercall_table[] = {
     HYPERCALL(platform_op, 1),
     HYPERCALL_ARM(vcpu_op, 3),
     HYPERCALL(freeze_op, 1),
+    HYPERCALL(camera_op, 1),
+    HYPERCALL(unfreeze_op, 1),
 };
 
 #ifndef NDEBUG
@@ -1669,7 +1671,7 @@ static void do_trap_smc(struct cpu_user_regs *regs, const union hsr hsr)
 	/* Check if this call is to OPTEE */
 	if (OPTEE_SMC_OWNER_NUM(smc_code) >= OPTEE_SMC_OWNER_TRUSTED_APP &&
 	    OPTEE_SMC_OWNER_NUM(smc_code) <= OPTEE_SMC_OWNER_TRUSTED_OS_API) {
-		printk("Saeed: Handle smc command\n");
+		//printk("Saeed: Handle smc command\n");
 		if (optee_handle_smc(regs)) {
 			goto err;
 		} else {
@@ -2645,7 +2647,7 @@ asmlinkage void do_trap_hypervisor(struct cpu_user_regs *regs)
         GUEST_BUG_ON(psr_mode_is_32bit(regs->cpsr));
         perfc_incr(trap_smc64);
         do_trap_smc(regs, hsr);
-	printk("Saeed: trap smc\n");
+	//printk("Saeed: trap smc\n");
         break;
     case HSR_EC_SYSREG:
         GUEST_BUG_ON(psr_mode_is_32bit(regs->cpsr));
