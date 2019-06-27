@@ -649,7 +649,7 @@ static void __init setup_low_mem_virq(void)
     low_mem_virq_th_order = order;
 
     //Saeed
-    test_call();
+    //test_call();
 
     printk("Initial low memory virq threshold set at %#lx pages.\n",
             low_mem_virq_th);
