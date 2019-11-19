@@ -1288,8 +1288,9 @@ static arm_hypercall_t arm_hypercall_table[] = {
     HYPERCALL(platform_op, 1),
     HYPERCALL_ARM(vcpu_op, 3),
     HYPERCALL(freeze_op, 1),
-    HYPERCALL(camera_op, 1),
     HYPERCALL(unfreeze_op, 1),
+    HYPERCALL(prepare_photo_op, 1),
+    HYPERCALL(show_photo_op, 1),
 };
 
 #ifndef NDEBUG

@@ -91,11 +91,15 @@ do_freeze_op(
     XEN_GUEST_HANDLE_PARAM(void) arg);
 
 extern long
-do_camera_op(
+do_unfreeze_op(
     XEN_GUEST_HANDLE_PARAM(void) arg);
 
 extern long
-do_unfreeze_op(
+do_prepare_photo_op(
+    XEN_GUEST_HANDLE_PARAM(void) arg);
+
+extern long
+do_show_photo_op(
     XEN_GUEST_HANDLE_PARAM(void) arg);
 
 /* Saeed end */

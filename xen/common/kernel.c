@@ -24,6 +24,7 @@
 #include <public/memory.h>
 #include <xen/domain_page.h>
 #include<asm-arm/arm64/io.h>
+#include <xen/xmalloc.h>
 //#include <delay.h>
 
 //#include <unistd.h>
@@ -534,325 +535,182 @@ DO(freeze_op)(XEN_GUEST_HANDLE_PARAM(void) arg) {
 	return  0;
 }
 
+void* photo_buffer; /* photo buffer */
 
-//DO(camera_op)(XEN_GUEST_HANDLE_PARAM(void) arg) {
-//
-//	/* vars */
-//	struct vb2_buffer *vb = NULL;
-//	struct vb2_buffer *my_vb;
-//	int ret;
-//
-//	void* vid_buffer;
-//	unsigned int *fb2_addr;
-//	unsigned int vid_size;
-//	struct fb_var_screeninfo *var;
-//	struct fb_fix_screeninfo *fix;
-//	int i, j, ii, jj;
-//
-//	int width=320, height=240;
-//	int t_width=640, t_height=480; //target width and target height
-//	unsigned char r, g, b;
-//	unsigned int sum_r, sum_g, sum_b;
-//	int xoffset, yoffset;
-//	
-//	unsigned int* scaled;
-//	unsigned int* transformed;
-//
-//	int xres, yres;
-//	float xscale;
-//	float yscale;
-//	bool upscale;
-//	unsigned long src_addr = 0x56100000;
-//	
-//	char transp = 0xff; //transp
-//
-//	unsigned char* tmp;
-//	void* buff;
-//	/********/
-//
-//	if( copy_from_guest(&buff, arg, 1) ) {
-//		printk("SaeedXEN: Error\n");
-//		return -EFAULT;
-//	}
-////	printk("Saeed: buff=%x\n", (unsigned int)buff);
-//	tmp = GPA_to_HPA(buff);
-//
-//	sfb_paddr = *(unsigned int*)tmp;
-//
-//	/* find the ade register */
-//	ade_reg = ioremap(0xf4100000, 0x1010);
-////	printk("SaeedXEN: reg_addr=%lx\n", (unsigned long)ade_reg);
-//
-//	/* get secure fb addr in Xen */
-//	sfb1 = GPA_to_HPA(sfb_paddr);
-//	sfb2 = sfb1 + 8294400;
-////	printk("sfb1=%lx\n", (unsigned long)sfb1);
-////	printk("sfb2=%lx\n", (unsigned long)sfb2);
-////	printk("test val1=%x, ", readl(sfb1));
-////	printk("test val2=%x\n", readl(sfb2));
-//
-//	/* get normal fb addr in Xen */
-//	fb1 = GPA_to_HPA(fb_paddr);
-//	fb2 = fb1 + 8294400;
-//
-////	vide_buffer <- arg;
-//	
-//	tmp = (unsigned char*)vid_buffer;
-//	
-//	transformed = (unsigned int*)kmalloc(width * height * 4, GFP_KERNEL);
-//	for(j=0; j<height; j++) {
-//		//printk("j=%d\n", j);
-//		for( i=0; i<width/2; i++) {
-//			int y1, y2, u, v;
-//			unsigned char r1, g1, b1;
-//			unsigned char r2, g2, b2;
-//			
-//			unsigned int val;
-//			memcpy(&val, tmp + j*width*2 + 4*i, 4);
-//
-//		        v  = ((val & 0x000000ff));
-//		        //cr  = ((val & 0x000000ff));
-//		        y2  = ((val & 0x0000ff00)>>8);
-//			u  = ((val & 0x00ff0000)>>16);
-//			//cb  = ((val & 0x00ff0000)>>16);
-//			y1 = ((val & 0xff000000)>>24);
-//
-////			y1 = (255/219)*(y1 - 16);
-////			y2 = (255/219)*(y2 - 16);
-////			u = (127/112)*(cb - 128);
-////			v = (127/112)*(cr - 128);
-//
-//			//yuv2rgb(y1, u, v, &r1, &g1, &b1);
-//			//yuv2rgb(y2, u, v, &r2, &g2, &b2);
-//			//
-//
-//			r1 = y1;
-//			r2 = y2;
-//			g1 = u;
-//			g2 = u;
-//			b1 = v;
-//			b2 = v;
-//	
-//			transformed[ j*width + 2*i + 0] = transp << 24 | r1 << 16 | g1 << 8 | b1;
-//			transformed[ j*width + 2*i + 1] = transp << 24 | r2 << 16 | g2 << 8 | b2;
-//
-//						
-//
-//		}
-//	}
-//	//Start upscale downscaling
-//	//
-//	//transformed -> scaled
-//	//width*height -> t_width*t_height
-//	//
-//	
-//	xscale = t_width/width;
-//	yscale = t_height/height;
-//	scaled = kmalloc(t_width * t_height * 4, GFP_KERNEL); // 4bytes per pixel
-//
-//	if (xscale>1 && yscale>1) {
-//		printk("Upscaling... with xscale=%d, yscale=%d\n", (int)xscale, (int)yscale);
-//		upscale = true;
-//	}
-//	else if (xscale<1 && yscale<1) {
-//		printk("Downscaling...\n");
-//		upscale = false;
-//	}
-//	else
-//		printk("Not supported");
-//
-//
-//	//Start scaling	
-//	if (upscale) { // replication
-//		for (j=0; j<t_height; j++) {
-//			for(i=0; i<t_width; i++) {
-//				ii = i/(int)xscale;
-//				jj = j/(int)yscale;
-//				scaled[j * t_width + i] = transformed[(jj * width) + ii];
-//			}
-//		}
-//	}
-//	else { // Downscaling
-//		yscale = (int)(1/yscale);
-//		xscale = (int)(1/xscale);
-//		for(i=0; i<t_width; i++) {
-//			for (j=0; j<t_height; j++) {
-//				//average block of them
-//				//
-//				sum_r = 0;
-//				sum_g = 0;
-//				sum_b = 0;
-//				for(ii=0; ii<xscale; ii++) {
-//					for(jj=0; jj<yscale; jj++) {
-//						unsigned int val;
-//						val = transformed[ ((int)yscale*j + jj) * t_width + ((int)xscale*i + ii)];
-//						sum_r += (val & 0x00FF0000) >> 16;
-//						sum_g += (val & 0x0000FF00) >> 8;
-//						sum_b += (val & 0x000000FF) >> 0;
-//					}
-//				}
-//				r = (sum_r / (xscale * yscale));
-//				g = (sum_g / (xscale * yscale));
-//				b = (sum_b / (xscale * yscale));
-//
-//				scaled[j * t_width + i] = (transp << 24) | (r << 16) | (g << 8) | b;
-//			}
-//		}
-//
-//	}
-//	kfree(transformed);
-//
-//	//positioning the scaled buffer on the second framebuffer
-//	xoffset = xres/4;
-//	yoffset = yres/4;
-//	printk("---------------------------------\n");
-//	//FIXME: maybe try memcpy
-//	for (j=0; j<t_height; j++) {
-//		for(i=0; i<t_width; i++) {
-//			fb2_addr[ xres * (yoffset + j) + (xoffset + i)] = scaled[j * t_width + i];
-//		}
-//	}
-//
-//	kfree(scaled);
-//	
-////	memcpy(phys_to_virt((unsigned long)(obj->paddr)) + 16588800/2, phys_to_virt((unsigned long)(obj->paddr)), 16588800/2);
-//
-//	printk("Conversion ended\n");
-//	writel(obj->paddr, my_base + 0x1008);
-//
-//
-//	return 0;
-//}
+DO(prepare_photo_op)(XEN_GUEST_HANDLE_PARAM(void) arg) {
+	/*  Set the address of the photo buffer to TEE (Xen) &
+	 *  write protect the photo buffer
+	 */
 
-
-DO(camera_op)(XEN_GUEST_HANDLE_PARAM(void) arg) {
-
-////	void *old_buf;
-////	void* new_buf;
-	void* dma_buf;
-	void* frame_buf;
-	int j;
-//	u32 val;
 	unsigned int buff = 0;
-//
-////	mfn_t old_buf_mfn;
-	mfn_t reg_mfn;
-//
-////	paddr_t paddr;
-	paddr_t paddr_base;
-////	unsigned long pfn;
-	unsigned long val;
-//	p2m_type_t p2mt = p2m_ram_rw;
-	//p2m_type_t p2mt = p2m_mmio_direct;
-	unsigned long offset;
-//	u32 reg_addr = 0x1008;
-	paddr_t paddr_g_fb = 0x54100000; //FB
-	paddr_t paddr_g_cam = 0x54700000; //Camera, wrong might be different each time
-////	paddr_t base = 0xf4100000;
 
-//	paddr_t base = 0xf4100000 + reg_addr;
-//	paddr_t base2 = 0x9b68000;
-//
-//
-	printk("Saeed: Xen start camera op\n");
+	//p2m_type_t p2mt = p2m_ram_rw;
+	//p2m_type_t p2mt = p2m_mmio_direct;
+	paddr_t paddr_g_cam;
+
+	printk("Saeed: Xen, prepare photo buf op\n");
 
 	if( copy_from_guest(&buff, arg, 1) ) {
 		printk("SaeedXEN: Error\n");
 		return -EFAULT;
 	}
 
-	//gvaddr = 0xffffff8009b70000;
-	//val = readl(base + reg_addr);	
-	printk("Saeed: %lx\n", (unsigned long)buff);
 	paddr_g_cam = buff;
 
-//	//////////// Reading the value at phys addr passed as argument
-//	paddr_base = p2m_lookup(current->domain, buff, NULL);
-//	if(paddr_base == INVALID_PADDR) {
-//		goto end;
-//	}
-//	printk("SaeedXEN: paddr_base1=%lx\n", (unsigned long)paddr_base);
-//	reg_mfn = ((unsigned long)((paddr_base) >> PAGE_SHIFT));
-//	printk("SaeedXEN: reg_mfn1=%lx\n", (unsigned long)reg_mfn);
-//
-//	reg_buf = map_domain_page_global(reg_mfn);
-//	printk("SaeedXEN: reg_buf1=%lx\n", (unsigned long)reg_buf);
-//
-//	offset = paddr_base - (reg_mfn << PAGE_SHIFT);
-//	
-//	val = readw(reg_buf + offset);
-//	printk("SaeedXEN: reg val_w=%lx\n", (unsigned long)val);
-//	val = readl(reg_buf + offset);
-//	printk("SaeedXEN: reg val_l=%lx\n", (unsigned long)val);
+	photo_buffer = GPA_to_HPA(paddr_g_cam);
+//	printk("Saeed: Xen, prepare photo buf op, paddr_g_cam = %lx, photo_buffer=%lx\n", (unsigned long) paddr_g_cam, (unsigned long)photo_buffer);
 
+	p2m_set_mem_access(current->domain, _gfn(paddr_g_cam >> PAGE_SHIFT), 1, 0, ~0, XENMEM_access_r, 0);
+	return 0;
+}
 
+DO(show_photo_op)(XEN_GUEST_HANDLE_PARAM(void) arg) {
+	/* Convert YUYV to RGB on the photo buffer
+	 * Resize
+	 * Show the photo buffer on the secure display, finding the address of it from the register
+	 * write protect the sfb
+	 */
 
-	/////////////Reading camera buffer
-	paddr_base = p2m_lookup(current->domain, paddr_g_cam, NULL);
-	if(paddr_base == INVALID_PADDR) {
-		goto end;
-	}
-	printk("SaeedXEN: paddr_base1=%lx\n", (unsigned long)paddr_base);
-	reg_mfn = ((unsigned long)((paddr_base) >> PAGE_SHIFT));
-	printk("SaeedXEN: reg_mfn1=%lx\n", (unsigned long)reg_mfn);
-
-	dma_buf = map_domain_page_global(reg_mfn);
-	printk("SaeedXEN: reg_buf1=%lx\n", (unsigned long)dma_buf);
-
-	offset = paddr_base - (reg_mfn << PAGE_SHIFT);
+	void* ade_reg;
+	unsigned int sfb_paddr;
+	int width=176, height=144;
+	int t_width=352, t_height=288; //target width and target height
+	unsigned char r, g, b;
+	unsigned int sum_r, sum_g, sum_b;
+	int xoffset, yoffset;
 	
-	val = readl(dma_buf + offset);
-	printk("SaeedXEN: reg val_l=%lx\n", (unsigned long)val);
+	unsigned int *scaled, *transformed, *fb2_addr;
+	unsigned char *tmp;
+
+	int xres = 1920, yres = 1080;
+	float xscale, yscale;
+	int i, j, ii, jj;
+	char transp = 0xFF;
+	bool upscale;
+
+	tmp = (unsigned char*)photo_buffer;
+
+//	printk("Saeed: Xen, show photo buf op, photo_buffer=%lx\n", (unsigned long)photo_buffer);
+//	printk("Saeed: %s, show_photo_op, [0]=%x\n", __FUNCTION__, readl(photo_buffer));
+//	printk("Saeed: %s, show_photo_op, [10]=%x\n", __FUNCTION__, readl(photo_buffer + 10));
+//	printk("Saeed: %s, show_photo_op, [20]=%x\n", __FUNCTION__, readl(photo_buffer + 20));
+//	printk("Saeed: %s, show_photo_op, [50]=%x\n", __FUNCTION__, readl(photo_buffer + 50));
 
 
-	/////////////Reading frame buffer
-	paddr_base = p2m_lookup(current->domain, paddr_g_fb, NULL);
-	if(paddr_base == INVALID_PADDR) {
-		goto end;
-	}
-	printk("SaeedXEN: paddr_base1=%lx\n", (unsigned long)paddr_base);
-	reg_mfn = ((unsigned long)((paddr_base) >> PAGE_SHIFT));
-	printk("SaeedXEN: reg_mfn1=%lx\n", (unsigned long)reg_mfn);
+	transformed = (unsigned int*)xmalloc_array(unsigned int, width * height);
+	for(j=0; j<height; j++) {
+		for( i=0; i<width/2; i++) {
+			int y1, y2, u, v;
+			unsigned char r1, g1, b1;
+			unsigned char r2, g2, b2;
+			
+			unsigned int val;
 
-	frame_buf = map_domain_page_global(reg_mfn);
-	printk("SaeedXEN: reg_buf1=%lx\n", (unsigned long)dma_buf);
+			memcpy(&val, tmp + j*width*2 + 4*i, 4);
 
-	offset = paddr_base - (reg_mfn << PAGE_SHIFT);
+		        v  = ((val & 0x000000ff));
+		        y2  = ((val & 0x0000ff00)>>8);
+			u  = ((val & 0x00ff0000)>>16);
+			y1 = ((val & 0xff000000)>>24);
+
+			r1 = y1;
+			r2 = y2;
+			g1 = u;
+			g2 = u;
+			b1 = v;
+			b2 = v;
 	
-	val = readl(frame_buf + offset);
-	printk("SaeedXEN: reg val_l=%lx\n", (unsigned long)val);
+			transformed[ j*width + 2*i + 0] = transp << 24 | r1 << 16 | g1 << 8 | b1;
+			transformed[ j*width + 2*i + 1] = transp << 24 | r2 << 16 | g2 << 8 | b2;
+		}
+	}
+
+	/* Start upscale downscaling
+	 *
+	 * transformed -> scaled
+	 * width*height -> t_width*t_height
+	 * 
+	 */	
+	xscale = t_width/width;
+	yscale = t_height/height;
+	scaled = xmalloc_array(unsigned int, t_width * t_height); /* 4 bytes per pixel */
+
+	if (xscale>1 && yscale>1) {
+		printk("Upscaling... with xscale=%d, yscale=%d\n", (int)xscale, (int)yscale);
+		upscale = true;
+	}
+	else if (xscale<1 && yscale<1) {
+		printk("Downscaling...\n");
+		upscale = false;
+	}
+	else
+		printk("Not supported");
 
 
-	memcpy(frame_buf, dma_buf, 204800); //Display camera buf into fb for 5*40960 = 204800 bytes
+	/* Start scaling */
+	if (upscale) { // replication
+		for (j=0; j<t_height; j++) {
+			for(i=0; i<t_width; i++) {
+				ii = i/(int)xscale;
+				jj = j/(int)yscale;
+				scaled[j * t_width + i] = transformed[(jj * width) + ii];
+			}
+		}
+	}
+	else { // Downscaling
+		yscale = (int)(1/yscale);
+		xscale = (int)(1/xscale);
+		for(i=0; i<t_width; i++) {
+			for (j=0; j<t_height; j++) {
+				//average block of them
+				//
+				sum_r = 0;
+				sum_g = 0;
+				sum_b = 0;
+				for(ii=0; ii<xscale; ii++) {
+					for(jj=0; jj<yscale; jj++) {
+						unsigned int val;
+						val = transformed[ ((int)yscale*j + jj) * t_width + ((int)xscale*i + ii)];
+						sum_r += (val & 0x00FF0000) >> 16;
+						sum_g += (val & 0x0000FF00) >> 8;
+						sum_b += (val & 0x000000FF) >> 0;
+					}
+				}
+				r = (sum_r / (xscale * yscale));
+				g = (sum_g / (xscale * yscale));
+				b = (sum_b / (xscale * yscale));
 
+				scaled[j * t_width + i] = (transp << 24) | (r << 16) | (g << 8) | b;
+			}
+		}
 
-	// comment for now
-//	p2m_set_mem_access(current->domain, _gfn(base >> PAGE_SHIFT), 1, 0, ~0, XENMEM_access_r, 0);
+	}
+	xfree(transformed);
 
+	/* find out the sfb */
+	ade_reg = ioremap(0xf4100000, 0x1010);
+	sfb_paddr = readl(ade_reg + 0x1008);
+//	printk("Saeed: Xen, show photo buf op, sfb_paddr = %lx\n", (unsigned long) sfb_paddr);
 
+	fb2_addr = GPA_to_HPA(sfb_paddr);
+
+	/* positioning the scaled photo buffer on the second framebuffer */
+	xoffset = xres/4;
+	yoffset = yres/4;
+	printk("---------------------------------\n");
+	//FIXME: maybe try memcpy
+	for (j=0; j<t_height; j++) {
+		for(i=0; i<t_width; i++) {
+			fb2_addr[ xres * (yoffset + j) + (xoffset + i)] = scaled[j * t_width + i];
+		}
+	}
+
+	xfree(scaled);
 	
-	
-	//sleep
-	for(j=0; j<500000; j+=2) {
-		j--;
-	}
-	for(j=0; j<500000; j+=2) {
-		j--;
-	}
-	for(j=0; j<500000; j+=2) {
-		j--;
-	}
-	for(j=0; j<500000; j+=2) {
-		j--;
-	}
+//	memcpy(phys_to_virt((unsigned long)(obj->paddr)) + 16588800/2, phys_to_virt((unsigned long)(obj->paddr)), 16588800/2);
 
-
-end:
-	test_call();
-
-	printk("Saeed: End camera op\n");
-
-	return  0;
+	printk("Saeed: Xen, show photo buf op, conversion ended\n");
+	return 0;
 }
 
 DO(xen_version)(int cmd, XEN_GUEST_HANDLE_PARAM(void) arg)

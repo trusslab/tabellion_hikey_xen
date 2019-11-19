@@ -185,7 +185,7 @@
 #define PAGE_MASK           (~(PAGE_SIZE-1))
 #define PAGE_FLAG_MASK      (~0)
 
-#define NR_hypercalls 64
+#define NR_hypercalls 65
 
 #define STACK_ORDER 3
 #define STACK_SIZE  (PAGE_SIZE << STACK_ORDER)
