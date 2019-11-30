@@ -320,6 +320,49 @@ void optee_domain_destroy(struct domain *d)
     /* Mark domain's shared memory as free */
     optee_free_domain_shm(d->domain_id);
 }
+//struct optee_shmem_info {
+//	    paddr_t maddr;
+//	        size_t size;
+//		    bool_t valid;
+//} optee_shmem_info;
+
+// Call the optee from the Xen, rather than the REE, so to send shared buffer from TEE
+//void optee_call_myTA(struct domain *d)
+//{
+//    struct optee_session *session;
+//    struct optee_rpc_call *call_info;
+//    struct list_head *list_ptr, *list_next;
+//
+//    /* Close all openned sessions */
+//    spin_lock(&sessions_lock);
+//    list_for_each_safe(list_ptr, list_next, &optee_sessions) {
+//        session = list_entry(list_ptr, struct optee_session,
+//			     list);
+//        if (session->domain_id == d->domain_id) {
+//		int ret = 0;
+//		struct optee_msg_arg *arg = optee_shm_zalloc(sizeof(struct optee_msg_arg) + sizeof(struct optee_msg_param));
+//
+//    		if (!arg) {
+//			/* TODO: Should we panic there? */
+//			printk("Saeed: OPTEE: force_close_session: can't alloc arg\n");
+//			return;
+//    		}
+//		arg->cmd = OPTEE_MSG_CMD_REGISTER_SHM;
+//	    	arg->session = session->session_handle;
+//		arg->params[0].u.tmem.shm_ref = NULL; //FIXME, is there any "struct tee_shm" in Xen available?
+//		arg->params[0].u.tmem.size = 8294400 + 16 + 1;
+//		arg->params[0].u.tmem.buf_ptr = 0x57100000;
+//		arg->params[0].attr = OPTEE_MSG_ATTR_TYPE_TMEM_INOUT;
+//
+////	    	ret = optee_do_call_with_arg(d, virt_to_maddr(arg));
+//		optee_shm_free(arg);
+//        }
+//    }
+//    spin_unlock(&sessions_lock);
+//    /* Mark domain's shared memory as free */
+//    optee_free_domain_shm(d->domain_id);
+//}
+//EXPORT_SYMBOL(optee_call_myTA);
 
 /*
  * Local variables:

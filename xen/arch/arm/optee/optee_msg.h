@@ -105,6 +105,7 @@
  * in ARM documentation) to a real physical address before passing the
  * structure to secure world.
  */
+//SaeedX
 struct optee_msg_param_tmem {
 	uint64_t buf_ptr;
 	uint64_t size;
