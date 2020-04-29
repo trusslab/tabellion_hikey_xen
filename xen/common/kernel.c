@@ -18,6 +18,7 @@
 #include <public/nmi.h>
 #include <public/version.h>
 //Saeed
+#include <asm/delay.h>
 #include <xen/sizes.h>
 #include <xen/mm.h>
 #include <asm/p2m.h>
@@ -25,9 +26,6 @@
 #include <xen/domain_page.h>
 #include<asm-arm/arm64/io.h>
 #include <xen/xmalloc.h>
-//#include <delay.h>
-
-//#include <unistd.h>
 #ifndef COMPAT
 
 enum system_state system_state = SYS_STATE_early_boot;
@@ -232,15 +230,12 @@ void __init do_initcalls(void)
 #endif
 
 /*
- * Simple hypercalls.
+ * hypercalls.
  */
-//Saeed
-//
 
-extern void test_call(void);
-extern void dump_guest_s1_walk(struct domain *, vaddr_t);
 extern void *ioremap(paddr_t, size_t);
 
+/* guest new mapping for hypervisor physical address */
 void* GPA_to_HPA(unsigned int paddr)
 {	
 	
@@ -254,140 +249,106 @@ void* GPA_to_HPA(unsigned int paddr)
 		printk("INVALID_PADDR\n");
 		return 0;
 	}
-	//printk("SaeedXEN: paddr_base=%lx\n", (unsigned long)paddr_base);
 	reg_mfn = ((unsigned long)((paddr_base) >> PAGE_SHIFT));
-	//printk("SaeedXEN: reg_mfn=%lx\n", (unsigned long)reg_mfn);
 
 	hpa = map_domain_page_global(reg_mfn);
-	//printk("SaeedXEN: hpa=%lx\n", (unsigned long)hpa);
 
 	offset = paddr_base - (reg_mfn << PAGE_SHIFT);
 	hpa += offset;
 	return hpa;
 
 }
-unsigned int sfb_paddr;
-unsigned int normal_fb_paddr; /* for unfreezing */
+unsigned int sfb_paddr, normal_fb_paddr;
+void *sfb_vaddr;
 
 DO(unfreeze_op)(XEN_GUEST_HANDLE_PARAM(void) arg) {
 
 	void* ade_reg;
 	ade_reg = ioremap(0xf4100000, 0x1010);
 
-	/* bring it back */
+	/* bring it back the disp reg */
 	p2m_set_mem_access(current->domain, _gfn( (0xf4100000)>> PAGE_SHIFT), 1, 0, ~0, XENMEM_access_rw, 0);
 	
-	/* bring it back */
+	/* bring it back the sfb */
 	p2m_set_mem_access(current->domain, _gfn(sfb_paddr >> PAGE_SHIFT), 1, 0, ~0, XENMEM_access_rw, 0);
 
 	/* Back to normal */
 	writel(normal_fb_paddr, ade_reg + 0x1008);
 	dsb(sy); isb();
 
+	/* free secure framebuffer */
+	xfree(sfb_vaddr);
+
 	return 0;
 }
 
 
-/* Wait a set number of microseconds */
-extern void udelay(unsigned long usecs);
+extern void register_photo_buf(unsigned int);
 
 DO(freeze_op)(XEN_GUEST_HANDLE_PARAM(void) arg) {
 
-	void* sfb1, *sfb2; //secure fb
-	void* ade_reg;
-	int i;
+	void *ade_reg, *nfb_vaddr; /* secure fb and ade reg */
 
-	unsigned int buff = 0;
-	void *tmp;
-
-//	printk("Saeed: Start freeze op\n");
-
-	if( copy_from_guest(&buff, arg, 1) ) {
-		printk("SaeedXEN: Error\n");
-		return -EFAULT;
-	}
-
-	/* write protect before starting */
-	/* write protect the ade register */
+	/* write protect the ade reg before starting */
 	p2m_set_mem_access(current->domain, _gfn( (0xf4100000)>> PAGE_SHIFT), 1, 0, ~0, XENMEM_access_r, 0);
 	
-	/* write protect the secure framebuffer */
-	p2m_set_mem_access(current->domain, _gfn(sfb_paddr >> PAGE_SHIFT), 1, 0, ~0, XENMEM_access_r, 0);
-
-//	printk("Saeed: buff=%x\n", (unsigned int)buff);
-
-	/* we don't need to get the address from the OS, we just freeze whatever is on the screen */
-	tmp = GPA_to_HPA(buff);
-
-	sfb_paddr = *(unsigned int*)tmp;
-
 	/* find the ade register */
 	ade_reg = ioremap(0xf4100000, 0x1010);
-	
+
+	/* holds the phys address of the display */	
 	normal_fb_paddr = readl(ade_reg + 0x1008);
 	
-//	printk("SaeedXEN: reg_addr=%lx\n", (unsigned long)ade_reg);
-
-	/* get secure fb addr in Xen */
-	sfb1 = GPA_to_HPA(sfb_paddr);
-	sfb2 = sfb1 + 8294400;
-
-	/* Write white page to the first sfb */
-	for(i=0; i<2073600; i++) {
-		writel(0xffffffff, sfb1 + 4*i);
+	/* allocate and copy secure fb in Xen */
+	if (!sfb_vaddr) {
+		sfb_vaddr = xzalloc_bytes(8294400);
+		if (!sfb_vaddr) {
+			printk("xzalloc failed\n");
+			return 0;
+		}
 	}
 
-	/* Update the ade to sfb1*/
-//	printk("SaeedXEN: reg_addr val before==%lx\n", (unsigned long)readl(ade_reg + 0x1008));	
-	writel(sfb_paddr, ade_reg + 0x1008);
+	/* get normal fb in Xen */
+	nfb_vaddr = GPA_to_HPA(normal_fb_paddr);
+	if (!nfb_vaddr) {
+		printk("nfb is null\n");
+		return 0;
+	}
+
+	memcpy(sfb_vaddr, nfb_vaddr, 8294400);
+
+	/* Update the ade to sfb1 */
+	writel(virt_to_maddr(sfb_vaddr), ade_reg + 0x1008);
 	writel(1, ade_reg + 0x1020);
 	dsb(sy); isb();
-//	printk("SaeedXEN: reg_addr val after==%lx\n", (unsigned long)readl(ade_reg + 0x1008));
 
-	/* sleep for a few seconds */
-	udelay(1000000);
-
-	/* show sfb2 - main page */	
-	writel(sfb_paddr + 8294400, ade_reg + 0x1008);
-	writel(1, ade_reg + 0x1020);
-	dsb(sy); isb();
-//	printk("SaeedXEN: reg_addr val after==%lx\n", (unsigned long)readl(ade_reg + 0x1008));
-
-	/* sleep for a few seconds */
-	udelay(1000000);
-
-	/* Ask for signature here - Call OPTEE */
-//	test_call();
+	/* sleep/freeze for a few seconds */
+	udelay(2000000);
 
 	return  0;
 }
 
-void* photo_buffer; /* photo buffer */
+void *photo_buffer; /* photo buffer */
+paddr_t paddr_g_cam; /* to shared with OPTEE */
 
 DO(prepare_photo_op)(XEN_GUEST_HANDLE_PARAM(void) arg) {
 	/*  Set the address of the photo buffer to TEE (Xen) &
 	 *  write protect the photo buffer
 	 */
-
 	unsigned int buff = 0;
-
-	//p2m_type_t p2mt = p2m_ram_rw;
-	//p2m_type_t p2mt = p2m_mmio_direct;
-	paddr_t paddr_g_cam;
-
-	printk("Saeed: Xen, prepare photo buf op\n");
-
 	if( copy_from_guest(&buff, arg, 1) ) {
 		printk("SaeedXEN: Error\n");
 		return -EFAULT;
 	}
 
 	paddr_g_cam = buff;
-
 	photo_buffer = GPA_to_HPA(paddr_g_cam);
-//	printk("Saeed: Xen, prepare photo buf op, paddr_g_cam = %lx, photo_buffer=%lx\n", (unsigned long) paddr_g_cam, (unsigned long)photo_buffer);
+	if (!photo_buffer) {
+		printk("pbuffer is null\n");
+		return 0;
+	}
 
 	p2m_set_mem_access(current->domain, _gfn(paddr_g_cam >> PAGE_SHIFT), 1, 0, ~0, XENMEM_access_r, 0);
+
 	return 0;
 }
 
@@ -398,31 +359,24 @@ DO(show_photo_op)(XEN_GUEST_HANDLE_PARAM(void) arg) {
 	 * write protect the sfb
 	 */
 
-	void* ade_reg;
-	unsigned int sfb_paddr;
-	int width=176, height=144;
-	int t_width=352, t_height=288; //target width and target height
+	unsigned int *nfb_vaddr;
+	void *ade_reg; /* secure fb and ade reg */
+	int width=320, height=240;
+	int t_width=640, t_height=480; /* target width and target height for scaling */
 	unsigned char r, g, b;
 	unsigned int sum_r, sum_g, sum_b;
 	int xoffset, yoffset;
 	
-	unsigned int *scaled, *transformed, *fb2_addr;
+	unsigned int *scaled, *transformed;
 	unsigned char *tmp;
 
 	int xres = 1920, yres = 1080;
 	float xscale, yscale;
 	int i, j, ii, jj;
 	char transp = 0xFF;
-	bool upscale;
+	int scale = 0;
 
 	tmp = (unsigned char*)photo_buffer;
-
-//	printk("Saeed: Xen, show photo buf op, photo_buffer=%lx\n", (unsigned long)photo_buffer);
-//	printk("Saeed: %s, show_photo_op, [0]=%x\n", __FUNCTION__, readl(photo_buffer));
-//	printk("Saeed: %s, show_photo_op, [10]=%x\n", __FUNCTION__, readl(photo_buffer + 10));
-//	printk("Saeed: %s, show_photo_op, [20]=%x\n", __FUNCTION__, readl(photo_buffer + 20));
-//	printk("Saeed: %s, show_photo_op, [50]=%x\n", __FUNCTION__, readl(photo_buffer + 50));
-
 
 	transformed = (unsigned int*)xmalloc_array(unsigned int, width * height);
 	for(j=0; j<height; j++) {
@@ -464,18 +418,15 @@ DO(show_photo_op)(XEN_GUEST_HANDLE_PARAM(void) arg) {
 
 	if (xscale>1 && yscale>1) {
 		printk("Upscaling... with xscale=%d, yscale=%d\n", (int)xscale, (int)yscale);
-		upscale = true;
+		scale = 1;
 	}
 	else if (xscale<1 && yscale<1) {
 		printk("Downscaling...\n");
-		upscale = false;
+		scale = 2;
 	}
-	else
-		printk("Not supported");
-
 
 	/* Start scaling */
-	if (upscale) { // replication
+	if (scale == 1) { /* replication */
 		for (j=0; j<t_height; j++) {
 			for(i=0; i<t_width; i++) {
 				ii = i/(int)xscale;
@@ -483,14 +434,14 @@ DO(show_photo_op)(XEN_GUEST_HANDLE_PARAM(void) arg) {
 				scaled[j * t_width + i] = transformed[(jj * width) + ii];
 			}
 		}
+		xfree(transformed);
 	}
-	else { // Downscaling
+	else if (scale == 2){ /* Downscaling */
 		yscale = (int)(1/yscale);
 		xscale = (int)(1/xscale);
 		for(i=0; i<t_width; i++) {
 			for (j=0; j<t_height; j++) {
-				//average block of them
-				//
+				/* average block of them */
 				sum_r = 0;
 				sum_g = 0;
 				sum_b = 0;
@@ -510,33 +461,38 @@ DO(show_photo_op)(XEN_GUEST_HANDLE_PARAM(void) arg) {
 				scaled[j * t_width + i] = (transp << 24) | (r << 16) | (g << 8) | b;
 			}
 		}
-
+		xfree(transformed);
 	}
-	xfree(transformed);
+	else {
+		scaled = transformed;
+	}
 
-	/* find out the sfb */
+	/* find the ade register */
 	ade_reg = ioremap(0xf4100000, 0x1010);
-	sfb_paddr = readl(ade_reg + 0x1008);
-//	printk("Saeed: Xen, show photo buf op, sfb_paddr = %lx\n", (unsigned long) sfb_paddr);
 
-	fb2_addr = GPA_to_HPA(sfb_paddr);
+	/* holds the phys address of the display */	
+	normal_fb_paddr = readl(ade_reg + 0x1008);
+	
+	/* get normal fb in Xen */
+	nfb_vaddr = (unsigned int*)GPA_to_HPA(normal_fb_paddr);
+	if (!nfb_vaddr) {
+		printk("nfb is null\n");
+		return 0;
+	}
 
-	/* positioning the scaled photo buffer on the second framebuffer */
+	/* positioning the scaled photo buffer on the framebuffer */
 	xoffset = xres/4;
 	yoffset = yres/4;
-	printk("---------------------------------\n");
-	//FIXME: maybe try memcpy
+
 	for (j=0; j<t_height; j++) {
 		for(i=0; i<t_width; i++) {
-			fb2_addr[ xres * (yoffset + j) + (xoffset + i)] = scaled[j * t_width + i];
+			nfb_vaddr[ xres * (yoffset + j) + (xoffset + i)] = scaled[j * t_width + i];
 		}
 	}
 
-	xfree(scaled);
+	/* Register phys address of photo buffer for OPTEE to sign in the next API call from normal world */
+	register_photo_buf(paddr_g_cam);
 	
-//	memcpy(phys_to_virt((unsigned long)(obj->paddr)) + 16588800/2, phys_to_virt((unsigned long)(obj->paddr)), 16588800/2);
-
-	printk("Saeed: Xen, show photo buf op, conversion ended\n");
 	return 0;
 }
 

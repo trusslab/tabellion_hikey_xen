@@ -145,15 +145,16 @@ static void force_end_rpc(struct domain *d, unsigned int thread_id)
  * This function will be called if there are opened session during
  * domain destruction
  */
-void test_call(void)
+
+/* Register phys address of photo buffer for OPTEE to sign */
+void register_photo_buf(unsigned int paddr_g_cam)
 {
-	//struct arm_smccc_res res;
 	register_t retval[4];
-	printk("Saeed: start smc test in Xen\n");
-	call_smc_ext(OPTEE_SMC_FREEZE_OP, 0, 0, 0, 0, 0, 0, 0, retval);
+	printk("SMC register photo buf\n");
+	call_smc_ext(OPTEE_SMC_PHOTO_OP, paddr_g_cam, 0, 0, 0, 0, 0, 0, retval);
 	printk(KERN_INFO "Response: %lx, %lx, %lx, %lx\n", retval[0], retval[1], retval[2], retval[3]);
 }
-EXPORT_SYMBOL(test_call);
+EXPORT_SYMBOL(register_photo_buf);
 
 static void force_close_session(struct domain *d, struct optee_session *session)
 {
